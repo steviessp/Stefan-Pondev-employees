@@ -16,14 +16,16 @@ namespace LongestPeriod
 
         public struct Employee
         {
+            uint _id { get; }
             uint _empID { get; }
             uint _projectID { get; }
             DateTime _dateFrom { get; }
             DateTime _dateTo { get; }
             double _daysOnProject { get; }
 
-            public Employee(uint empID, uint projectID, DateTime dateFrom, DateTime dateTo)
+            public Employee(uint id, uint empID, uint projectID, DateTime dateFrom, DateTime dateTo)
             {
+                _id = id;
                 _empID = empID;
                 _projectID = projectID;
                 _dateFrom = dateFrom;
@@ -32,6 +34,10 @@ namespace LongestPeriod
                 _daysOnProject = (_dateTo - _dateFrom).TotalDays;
             }
 
+            public uint ID
+            {
+                get { return _id; }
+            }
             public uint EmpID
             {
                 get { return _empID; }
@@ -59,7 +65,53 @@ namespace LongestPeriod
             }
         }
 
+        public struct Team
+        {
+            uint _id { get; set; }
+            uint _empID1 { get; set; }
+            uint _empID2 { get; set; }
+            uint _projectID { get; set; }
+            public double _daysOnProject { get; set; }
+
+            public uint ID
+            {
+                get { return _id; }
+                set { _id = value; }
+            }
+
+            public uint EmpID1
+            {
+                get { return _empID1; }
+                set { _empID1 = value; }
+            }
+
+            public uint EmpID2
+            {
+                get { return _empID2; }
+                set { _empID2 = value; }
+            }
+
+            public uint ProjectID
+            {
+                get { return _projectID; }
+                set { _projectID = value; }
+            }
+
+            public double DaysOnProject
+
+            {
+                get { return _daysOnProject; }
+                set { _daysOnProject = value; }
+            }
+
+            public void SumDays(double days)
+            {
+                _daysOnProject += days;
+            }
+        }
+
         List<Employee> employees;
+        List<Team> workTeams;
 
         public LongestPeriod()
         {
@@ -68,8 +120,9 @@ namespace LongestPeriod
 
         private void btn_LoadData_Click(object sender, EventArgs e)
         {
-            openFileDialog = new OpenFileDialog();           
-            openFileDialog.Filter = "txt files (*.txt)|*.txt|CSV files (*.csv)|*.csv";           
+            uint index = 0;
+            openFileDialog = new OpenFileDialog();
+            openFileDialog.Filter = "txt files (*.txt)|*.txt|CSV files (*.csv)|*.csv";
             if (openFileDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
             {
 
@@ -98,10 +151,11 @@ namespace LongestPeriod
                             DateTime dTo = ((values[3].Trim() == "NULL") || (values[3].Trim() == "null")) ? DateTime.Now : DateTime.Parse(values[3]);
                             if ((eID != 0) && (pID != 0) && (dFrom != null) && (dTo != null))
                             {
-                                anEmployee = new Employee(eID, pID, dFrom, dTo);
+                                anEmployee = new Employee(index, eID, pID, dFrom, dTo);
                                 employees.Add(anEmployee);
+                                dgv_Employees.Rows.Add(eID, pID, dFrom, dTo);
+                                index++;
                             }
-                            dgv_Employees.Rows.Add(eID, pID, dFrom, dTo);
                         }
                         catch (System.FormatException formatEx)
                         {
@@ -124,43 +178,147 @@ namespace LongestPeriod
             }
         }
 
+        private double GetOverLapping(Employee emp1, Employee emp2)
+        {
+            DateTime dateTo, dateFrom;
+            dateTo = (emp1.DateTo.CompareTo(emp2.DateTo) <= 0) ? emp1.DateTo : emp2.DateTo;
+            dateFrom = (emp1.DateFrom.CompareTo(emp2.DateFrom) >= 0) ? emp1.DateFrom : emp2.DateFrom;
+
+            return (dateTo.CompareTo(dateFrom) > 0) ? (dateTo - dateFrom).TotalDays : 0;
+        }
+
         private void btn_LongestPeriod_Click(object sender, EventArgs e)
         {
-            var projects = employees
-                .GroupBy(pr => pr.ProjectID)                
-                .Select(g => g.First());
+            var teamMates = new List<Employee>();
+            workTeams = new List<Team>();
+            var longestWorkTeams = new List<Team>();
+            Team workTeam;
+            uint workTeamIndex = 0;
+            int listIndex = 0;
 
-            foreach (Employee prj_emp in projects)
+            dgv_TeamMates.Rows.Clear();
+            dgv_TeamMates.Refresh();
+            dgv_LongestPeriod.Rows.Clear();
+            dgv_LongestPeriod.Refresh();
+            btn_LongestPeriod.Enabled = false;
+
+            //Get teams by project and overlapping date
+            foreach (Employee emp in employees)
             {
-
-                var team = employees
-                    .Where(prid => prid.ProjectID == prj_emp.ProjectID)
-                    .OrderByDescending(dP => dP.DaysOnProject)
-                    .Take(2);
-
-                if (team.Count() > 1)
+                foreach (Employee emp2 in employees.Where(id => id.ID > emp.ID))
                 {
-                    dgv_TeamMates.Rows.Add(team.First().EmpID, team.Last().EmpID, team.First().ProjectID, Convert.ToUInt32(team.Last().DaysOnProject));
+                    if (emp.EmpID != emp2.EmpID &&
+                        emp.ProjectID == emp2.ProjectID)
+                    {
+                        double overlapping = GetOverLapping(emp, emp2);
+                        if (overlapping > 0)
+                        {
+                            Team newTeam = new Team()
+                            {
+                                EmpID1 = emp.EmpID <= emp2.EmpID ? emp.EmpID : emp2.EmpID,
+                                EmpID2 = emp2.EmpID >= emp.EmpID ? emp2.EmpID : emp.EmpID,
+                                ProjectID = emp.ProjectID,
+                                DaysOnProject = overlapping
+                            };
+
+                            listIndex = workTeams.FindIndex(w => w.EmpID1 == newTeam.EmpID1 &&
+                                    w.EmpID2 == newTeam.EmpID2 &&
+                                    w.ProjectID == newTeam.ProjectID);
+
+                            if (listIndex < 0)
+                            {
+                                newTeam.ID = workTeamIndex;
+                                workTeams.Add(newTeam);
+                                workTeamIndex++;
+                            }
+                            else
+                            {
+                                workTeam = workTeams[listIndex];
+                                workTeam.SumDays(newTeam.DaysOnProject);
+                                workTeams[listIndex] = workTeam;
+                            }
+                        }
+                    }
                 }
-            }           
-            dgv_TeamMates.Sort(dgv_TeamMates.Columns["DaysWorked"], ListSortDirection.Descending);             
+            }
+            workTeamIndex = 0;
+            //Get Longest work team summing the periods of equal couple
+            foreach (Team tm in workTeams)
+            {
+                if (longestWorkTeams.FindIndex(w => w.EmpID1 == tm.EmpID1 &&
+                                w.EmpID2 == tm.EmpID2) < 0)
+                {
+                    foreach (Team tm2 in workTeams.Where(id => id.ID > tm.ID))
+                    {
+                        if (tm.EmpID1 == tm2.EmpID1 &&
+                            tm.EmpID2 == tm2.EmpID2)
+                        {
+                            Team newTeam = new Team()
+                            {
+                                EmpID1 = tm.EmpID1,
+                                EmpID2 = tm.EmpID2,
+                                DaysOnProject = tm2.DaysOnProject
+                            };
+
+                            listIndex = longestWorkTeams.FindIndex(w => w.EmpID1 == newTeam.EmpID1 &&
+                                    w.EmpID2 == newTeam.EmpID2);
+
+                            if (listIndex < 0)
+                            {
+                                newTeam.ID = workTeamIndex;
+                                newTeam.SumDays(tm.DaysOnProject);
+                                longestWorkTeams.Add(newTeam);
+                                workTeamIndex++;
+                            }
+                            else
+                            {
+                                workTeam = longestWorkTeams[listIndex];
+                                workTeam.SumDays(newTeam.DaysOnProject);
+                                longestWorkTeams[listIndex] = workTeam;
+                            }
+                        }
+                    }
+                    listIndex = longestWorkTeams.FindIndex(w => w.EmpID1 == tm.EmpID1 &&
+                                    w.EmpID2 == tm.EmpID2);
+                    if (listIndex < 0)
+                    {
+                        Team newTeam = new Team()
+                        {
+                            EmpID1 = tm.EmpID1,
+                            EmpID2 = tm.EmpID2,
+                            DaysOnProject = tm.DaysOnProject
+                        };
+                        newTeam.ID = workTeamIndex;
+                        longestWorkTeams.Add(newTeam);
+                        workTeamIndex++;
+                    }
+                }
+            }
+
+            foreach (Team aTeam in workTeams.OrderByDescending(o => o.DaysOnProject))
+                dgv_TeamMates.Rows.Add(aTeam.EmpID1, aTeam.EmpID2, aTeam.ProjectID, Convert.ToUInt32(aTeam.DaysOnProject));
+
+            foreach (Team theTeam in longestWorkTeams.OrderByDescending(o => o.DaysOnProject).Take(1))
+                dgv_LongestPeriod.Rows.Add(theTeam.EmpID1, theTeam.EmpID2, Convert.ToUInt32(theTeam.DaysOnProject)); 
         }
 
         private void btn_Clear_Click(object sender, EventArgs e)
         {
             dgv_Employees.Rows.Clear();
-            dgv_Employees.Refresh(); 
+            dgv_Employees.Refresh();
             dgv_TeamMates.Rows.Clear();
             dgv_TeamMates.Refresh();
+            dgv_LongestPeriod.Rows.Clear();
+            dgv_LongestPeriod.Refresh();
             btn_LoadData.Enabled = true;
-            btn_LongestPeriod.Enabled = false; 
+            btn_LongestPeriod.Enabled = false;
         }
 
-       
+
         private void LongestPeriod_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (MessageBox.Show(this, "Confirm exit?", "CONFIRM", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.Cancel)
                 e.Cancel = true;
-        }
+        }       
     }
 }
